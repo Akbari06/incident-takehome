@@ -134,7 +134,7 @@ function App() {
   return (
     <div className="layout">
       <header className="header">
-        <h1>Incident Schedule Visualiser</h1>
+        <h1>Incident Schedule Visualiser 🔥</h1>
         <p>
           Update the schedule JSON and click render to see how overrides affect the final rotation.
         </p>
