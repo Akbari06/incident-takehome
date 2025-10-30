@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -15,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scheduler import generate_schedule, to_payload
+from scheduler import ScheduleError, generate_schedule, to_payload
 
 
 class ScheduleModel(BaseModel):
@@ -91,10 +91,13 @@ def render_schedule(request: ScheduleRequest):
         for override in request.overrides
     ]
 
-    segments = generate_schedule(
-        schedule_payload,
-        overrides_payload,
-        request.start_at,
-        request.end_at,
-    )
+    try:
+        segments = generate_schedule(
+            schedule_payload,
+            overrides_payload,
+            request.start_at,
+            request.end_at,
+        )
+    except ScheduleError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return to_payload(segments)

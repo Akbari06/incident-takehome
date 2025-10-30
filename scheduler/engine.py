@@ -8,6 +8,10 @@ from itertools import tee
 from typing import Iterable, Iterator, List, Optional, Sequence, Tuple
 
 
+class ScheduleError(ValueError):
+    """Raised when schedule inputs are invalid."""
+
+
 @dataclass(frozen=True)
 class Segment:
     """Represents a contiguous assignment for a single user."""
@@ -46,7 +50,10 @@ def parse_iso8601(value: str) -> datetime:
 
     if value.endswith("Z"):
         value = value[:-1] + "+00:00"
-    return datetime.fromisoformat(value)
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ScheduleError(f"Invalid ISO timestamp: {value}") from exc
 
 
 def format_iso8601(value: datetime) -> str:
@@ -70,11 +77,11 @@ def validate_users(value) -> List[str]:
         The validated list of user strings.
 
     Raises:
-        SystemExit: If the value is missing, empty, or contains non-strings.
+        ScheduleError: If the value is missing, empty, or contains non-strings.
     """
 
     if not isinstance(value, list) or not value or not all(isinstance(item, str) for item in value):
-        raise SystemExit("Schedule users must be a non-empty array of strings")
+        raise ScheduleError("Schedule users must be a non-empty array of strings")
     return value
 
 
@@ -93,16 +100,16 @@ def parse_schedule(data: dict) -> Tuple[List[str], datetime, int]:
         handover_start_raw = data["handover_start_at"]
         interval_days_raw = data["handover_interval_days"]
     except KeyError as exc:
-        raise SystemExit(f"Missing key in schedule: {exc}") from exc
+        raise ScheduleError(f"Missing key in schedule: {exc}") from exc
 
     users = validate_users(users_raw)
     handover_start = parse_iso8601(handover_start_raw)
     try:
         interval_days = int(interval_days_raw)
     except (TypeError, ValueError) as exc:
-        raise SystemExit("handover_interval_days must be an integer") from exc
+        raise ScheduleError("handover_interval_days must be an integer") from exc
     if interval_days <= 0:
-        raise SystemExit("handover_interval_days must be positive")
+        raise ScheduleError("handover_interval_days must be positive")
 
     return users, handover_start, interval_days
 
@@ -120,7 +127,7 @@ def parse_overrides(data) -> List[Segment]:
     if data is None:
         return []
     if not isinstance(data, list):
-        raise SystemExit("Overrides file must contain a JSON array")
+        raise ScheduleError("Overrides file must contain a JSON array")
 
     overrides: List[Segment] = []
     for idx, entry in enumerate(data):
@@ -129,14 +136,14 @@ def parse_overrides(data) -> List[Segment]:
             start_at_raw = entry["start_at"]
             end_at_raw = entry["end_at"]
         except KeyError as exc:
-            raise SystemExit(f"Missing key in overrides[{idx}]: {exc}") from exc
+            raise ScheduleError(f"Missing key in overrides[{idx}]: {exc}") from exc
         if not isinstance(user, str):
-            raise SystemExit(f"Override user must be a string (overrides[{idx}])")
+            raise ScheduleError(f"Override user must be a string (overrides[{idx}])")
 
         start_at = parse_iso8601(start_at_raw)
         end_at = parse_iso8601(end_at_raw)
         if end_at <= start_at:
-            raise SystemExit("Override end_at must be after start_at")
+            raise ScheduleError("Override end_at must be after start_at")
         overrides.append(Segment(start_at, end_at, user))
     return overrides
 
@@ -271,7 +278,7 @@ def generate_schedule(
     """
 
     if window_end <= window_start:
-        raise SystemExit("--until must be after --from")
+        raise ScheduleError("--until must be after --from")
 
     users, handover_start, interval_days = parse_schedule(schedule_data)
     base_segments = build_rotation(users, handover_start, interval_days, window_start, window_end)

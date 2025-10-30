@@ -29,6 +29,17 @@ function App() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const timeFormatter = useMemo(() => {
+    return new Intl.DateTimeFormat("en-GB", {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "UTC",
+      timeZoneName: "short",
+    });
+  }, []);
+
   const userColour = useMemo(() => {
     const map = new Map();
     let idx = 0;
@@ -66,6 +77,8 @@ function App() {
 
     setLoading(true);
     try {
+      const formatTimestamp = (value) => timeFormatter.format(new Date(value));
+
       const response = await fetch("http://localhost:8000/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -83,7 +96,13 @@ function App() {
       }
 
       const data = await response.json();
-      setEntries(data);
+      setEntries(
+        data.map((entry) => ({
+          ...entry,
+          formattedStart: formatTimestamp(entry.start_at),
+          formattedEnd: formatTimestamp(entry.end_at),
+        })),
+      );
     } catch (requestError) {
       setError(requestError.message);
       setEntries([]);
@@ -103,8 +122,14 @@ function App() {
     if (Number.isNaN(start) || Number.isNaN(end) || end <= start) {
       return null;
     }
-    return { start, end, length: end - start };
-  }, [window.from, window.until]);
+    return {
+      start,
+      end,
+      length: end - start,
+      labelStart: timeFormatter.format(new Date(window.from)),
+      labelEnd: timeFormatter.format(new Date(window.until)),
+    };
+  }, [timeFormatter, window.from, window.until]);
 
   return (
     <div className="layout">
@@ -115,7 +140,7 @@ function App() {
         </p>
       </header>
 
-      <section className="panels">
+      <section className="panels vertical">
         <form
           className="panel"
           onSubmit={(event) => {
@@ -168,36 +193,50 @@ function App() {
           {error && <p className="error">{error}</p>}
         </form>
 
-        <section className="panel">
+        <section className="panel panel-wide">
           <h2>Timeline</h2>
           {totalRange && entries.length > 0 ? (
-            <div className="timeline">
-              {entries.map((entry) => {
-                const start = Date.parse(entry.start_at);
-                const end = Date.parse(entry.end_at);
-                const left = ((start - totalRange.start) / totalRange.length) * 100;
-                const width = ((end - start) / totalRange.length) * 100;
-                return (
-                  <div
-                    key={`${entry.user}-${entry.start_at}`}
-                    className="timeline-bar"
-                    style={{
-                      left: `${left}%`,
-                      width: `${width}%`,
-                      backgroundColor: userColour(entry.user),
-                    }}
-                    title={`${entry.user}: ${entry.start_at} → ${entry.end_at}`}
-                  >
-                    <span>{entry.user}</span>
-                  </div>
-                );
-              })}
+            <div className="timeline timeline-expanded">
+              <div className="timeline-track">
+                <div className="timeline-track-inner">
+                  {entries.map((entry) => {
+                    const start = Date.parse(entry.start_at);
+                    const end = Date.parse(entry.end_at);
+                    const duration = Math.max(end - start, 0);
+                    const flexShare = duration / totalRange.length || 0;
+                    return (
+                      <div
+                        key={`${entry.user}-${entry.start_at}`}
+                        className="timeline-segment"
+                        style={{
+                          flexGrow: Math.max(flexShare, 0.0001),
+                          backgroundColor: userColour(entry.user),
+                        }}
+                        title={`${entry.user}: ${entry.start_at} → ${entry.end_at}`}
+                      >
+                        <div className="segment-content">
+                          <div className="segment-user">{entry.user}</div>
+                          <div className="segment-range">
+                            {entry.formattedStart} → {entry.formattedEnd}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="timeline-scale">
+                <span>{totalRange.labelStart}</span>
+                <span>{totalRange.labelEnd}</span>
+              </div>
             </div>
           ) : (
             <p className="empty">Run the renderer to visualise the schedule.</p>
           )}
+        </section>
 
-          <h3>Entries</h3>
+        <section className="panel">
+          <h2>Entries</h2>
           {entries.length > 0 ? (
             <table className="entries">
               <thead>
