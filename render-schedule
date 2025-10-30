@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""CLI entry point for the on-call schedule renderer."""
+
+import argparse
+import json
+from pathlib import Path
+
+from scheduler import generate_schedule, parse_iso8601, to_payload
+
+
+def read_json_file(path: Path):
+    """Load a JSON document from disk, raising a friendly error if it fails."""
+
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except FileNotFoundError as exc:
+        raise SystemExit(f"File not found: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Invalid JSON in {path}: {exc}") from exc
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments specifying input files and output window."""
+
+    parser = argparse.ArgumentParser(description="Render a schedule with overrides.")
+    parser.add_argument("--schedule", required=True, type=Path, help="Path to schedule JSON file")
+    parser.add_argument("--overrides", required=True, type=Path, help="Path to overrides JSON file")
+    parser.add_argument("--from", dest="window_start", required=True, help="Start time in ISO-8601 format")
+    parser.add_argument("--until", dest="window_end", required=True, help="End time in ISO-8601 format")
+    return parser.parse_args()
+
+
+def main() -> None:
+    """Entry point used by the executable wrapper."""
+
+    args = parse_args()
+    window_start = parse_iso8601(args.window_start)
+    window_end = parse_iso8601(args.window_end)
+
+    schedule_data = read_json_file(args.schedule)
+    overrides_data = read_json_file(args.overrides)
+
+    segments = generate_schedule(schedule_data, overrides_data, window_start, window_end)
+    payload = to_payload(segments)
+    print(json.dumps(payload, indent=2))
+
+
+if __name__ == "__main__":
+    main()
