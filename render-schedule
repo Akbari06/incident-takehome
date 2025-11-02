@@ -1,54 +1,65 @@
 #!/usr/bin/env python3
 """CLI entry point for the on-call schedule renderer."""
 
-import argparse
-import json
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
-from scheduler import ScheduleError, generate_schedule, parse_iso8601, to_payload
+def generate_schedule(users, handover_start, handover_interval_days, num_periods):
+    """Generate a simple on-call schedule."""
+    schedule = []
+    current_date = handover_start
+    interval = timedelta(days=handover_interval_days)
+    for i in range(num_periods):
+        end = current_date + interval # Calculate end date
+        user = users[i % len(users)] # Rotate through users
+        schedule.append({
+            "user": user,
+            "start": current_date,
+            "end": end
+        })
+        current_date = end # Move to next period
 
+    return schedule
 
-def read_json_file(path: Path):
-    """Load a JSON document from disk, raising a friendly error if it fails."""
+def apply_overrides(schedule, overrides):
+    """Apply overrides to the schedule."""
+    new_schedule = []
 
-    try:
-        with path.open("r", encoding="utf-8") as fh:
-            return json.load(fh)
-    except FileNotFoundError as exc:
-        raise SystemExit(f"File not found: {path}") from exc
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"Invalid JSON in {path}: {exc}") from exc
+    for entry in schedule:
+        start, end = entry["start"], entry["end"]
 
+        # Find overrides that overlap with this interval
+        overlapping_overrides = [
+            o for o in overrides
+            if not (o["end"] <= start or o["start"] >= end)
+        ]
 
-def parse_args() -> argparse.Namespace:
-    """Parse CLI arguments specifying input files and output window."""
+        # If no overrides affect this entry, keep it as is
+        if not overlapping_overrides:
+            new_schedule.append(entry)
+            continue
 
-    parser = argparse.ArgumentParser(description="Render a schedule with overrides.")
-    parser.add_argument("--schedule", required=True, type=Path, help="Path to schedule JSON file")
-    parser.add_argument("--overrides", required=True, type=Path, help="Path to overrides JSON file")
-    parser.add_argument("--from", dest="window_start", required=True, help="Start time in ISO-8601 format")
-    parser.add_argument("--until", dest="window_end", required=True, help="End time in ISO-8601 format")
-    return parser.parse_args()
+        current_start = start
+        for override in sorted(overlapping_overrides, key=lambda o: o["start"]):
+            # Segment before the override
+            if override["start"] > current_start:
+                new_schedule.append({
+                    "user": entry["user"],
+                    "start": current_start,
+                    "end": override["start"]
+                })
 
+            # Add the override itself
+            new_schedule.append(override)
 
-def main() -> None:
-    """Entry point used by the executable wrapper."""
+            # Move current start forward
+            current_start = max(current_start, override["end"])
 
-    args = parse_args()
-    try:
-        window_start = parse_iso8601(args.window_start)
-        window_end = parse_iso8601(args.window_end)
+        # Segment after the last override
+        if current_start < end:
+            new_schedule.append({
+                "user": entry["user"],
+                "start": current_start,
+                "end": end
+            })
 
-        schedule_data = read_json_file(args.schedule)
-        overrides_data = read_json_file(args.overrides)
-
-        segments = generate_schedule(schedule_data, overrides_data, window_start, window_end)
-    except ScheduleError as exc:
-        raise SystemExit(str(exc)) from exc
-
-    payload = to_payload(segments)
-    print(json.dumps(payload, indent=2))
-
-
-if __name__ == "__main__":
-    main()
+    return new_schedule
