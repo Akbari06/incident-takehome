@@ -2,13 +2,6 @@
 
 This repository ships a single Python CLI (`./render-schedule`) that produces an on-call schedule with overrides applied and the result truncated to a requested window.
 
-## Quick start
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-./render-schedule --from='2025-11-07T17:00:00Z' --until='2025-11-21T17:00:00Z'
-```
 
 The CLI defaults to the sample JSON files in the repository root. Override the inputs by pointing to your own data:
 
